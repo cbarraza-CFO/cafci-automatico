@@ -26,39 +26,49 @@ with open(archivo, "wb") as f:
     f.write(r.content)
 
 # ==========================================================
-# DETECTAR FILA DE ENCABEZADOS REAL
+# LECTURA CON HEADER MULTINIVEL (FILAS 8 Y 9)
 # ==========================================================
 
-df_temp = pd.read_excel(archivo, header=None)
+df = pd.read_excel(
+    archivo,
+    header=[7, 8]   # fila 8 y 9 (index base 0)
+)
 
-fila_header = None
+# Combinar encabezados
+df.columns = [
+    f"{str(a)} {str(b)}".strip().lower()
+    for a, b in df.columns
+]
 
-for i in range(20):  # busca en las primeras 20 filas
-    fila = df_temp.iloc[i].astype(str).str.lower()
-    if fila.str.contains("fondo").any() or fila.str.contains("denomin").any():
-        fila_header = i
-        break
-
-if fila_header is None:
-    raise Exception("No se pudo detectar la fila de encabezados")
-
-print(f"Encabezado detectado en fila {fila_header}")
-
-# ==========================================================
-# LEER CON HEADER CORRECTO
-# ==========================================================
-
-df = pd.read_excel(archivo, header=fila_header)
-df = df.dropna(how="all")  # elimina filas totalmente vacías
-df.columns = df.columns.str.strip().str.lower()
-
+df = df.dropna(how="all")
 df["fecha"] = hoy_str
 
-print("Columnas reales:")
+print("Columnas procesadas:")
 print(df.columns.tolist())
 
 # ==========================================================
-# FUNCIÓN LIMPIEZA %
+# BUSCAR COLUMNAS
+# ==========================================================
+
+def buscar_columna(palabras):
+    for col in df.columns:
+        for palabra in palabras:
+            if palabra in col:
+                return col
+    return None
+
+col_fondo = buscar_columna(["fondo", "denomin", "nombre"])
+col_moneda = buscar_columna(["moneda"])
+col_plazo = buscar_columna(["plazo", "liquid"])
+col_dia = buscar_columna(["diario"])
+col_mes = buscar_columna(["mes"])
+col_anio = buscar_columna(["año", "anio"])
+
+if not col_dia:
+    raise Exception("No se encontró columna rendimiento diario")
+
+# ==========================================================
+# LIMPIAR %
 # ==========================================================
 
 def limpiar_pct(col):
@@ -69,34 +79,9 @@ def limpiar_pct(col):
         .astype(float)
     )
 
-# ==========================================================
-# DETECTAR COLUMNAS
-# ==========================================================
-
-def buscar_columna(palabras):
-    for col in df.columns:
-        for palabra in palabras:
-            if palabra in col:
-                return col
-    return None
-
-col_fondo = buscar_columna(["fondo", "denomin"])
-col_moneda = buscar_columna(["moneda"])
-col_plazo = buscar_columna(["plazo", "liquid"])
-col_dia = buscar_columna(["diario"])
-col_mes = buscar_columna(["mes"])
-col_anio = buscar_columna(["año", "anio"])
-
-if not col_fondo:
-    raise Exception("No se encontró columna nombre fondo")
-
-# ==========================================================
-# LIMPIAR RENDIMIENTOS
-# ==========================================================
-
 df["rend_dia"] = limpiar_pct(df[col_dia])
-df["rend_mes"] = limpiar_pct(df[col_mes])
-df["rend_anio"] = limpiar_pct(df[col_anio])
+df["rend_mes"] = limpiar_pct(df[col_mes]) if col_mes else 0
+df["rend_anio"] = limpiar_pct(df[col_anio]) if col_anio else 0
 
 # ==========================================================
 # HISTÓRICO
@@ -133,11 +118,11 @@ df_resumen = pd.DataFrame([{
 df_resumen.to_excel("Resumen_Rendimientos.xlsx", index=False)
 
 # ==========================================================
-# CSV LIMPIO POWER BI
+# CSV POWER BI
 # ==========================================================
 
 df_powerbi = pd.DataFrame({
-    "Nombre_Fondo": df[col_fondo],
+    "Nombre_Fondo": df[col_fondo] if col_fondo else "",
     "Moneda": df[col_moneda] if col_moneda else "",
     "Fecha": hoy_str,
     "Plazo_Liquidacion": df[col_plazo] if col_plazo else "",
@@ -170,7 +155,7 @@ data = [["Fondo", "Rend Día %"]]
 
 for _, row in top10.iterrows():
     data.append([
-        str(row[col_fondo]),
+        str(row[col_fondo]) if col_fondo else "",
         round(row["rend_dia"],3)
     ])
 
