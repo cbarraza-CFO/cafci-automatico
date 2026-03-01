@@ -89,36 +89,37 @@ col_plazo = buscar_columna("plazo liq")
 col_valor = buscar_columna("valor (mil cuotapartes) actual")
 
 # ==========================================================
-# ASIGNAR TIPO_RENTA POR BLOQUES SECUENCIALES
+# CREAR TIPO_RENTA (MÉTODO ESTABLE)
 # ==========================================================
 
 df["Tipo_Renta"] = None
-categoria_actual = None
+
+def normalizar(txt):
+    return " ".join(str(txt).lower().strip().split())
 
 for i in range(len(df)):
-    nombre = str(df[col_fondo].iloc[i]).strip()
+    nombre = normalizar(df[col_fondo].iloc[i])
 
-    # Si encontramos categoría nueva
-    if nombre == "Renta Variable Peso Argentina":
-        categoria_actual = "Renta Variable Peso Argentina"
-        continue
+    if nombre == normalizar("Renta Variable Peso Argentina"):
+        df.at[i, "Tipo_Renta"] = "Renta Variable Peso Argentina"
 
-    if nombre == "Renta Fija Peso Argentina":
-        categoria_actual = "Renta Fija Peso Argentina"
-        continue
+    elif nombre == normalizar("Renta Fija Peso Argentina"):
+        df.at[i, "Tipo_Renta"] = "Renta Fija Peso Argentina"
 
-    # Asignar categoría vigente
-    df.at[i, "Tipo_Renta"] = categoria_actual
+# Propagar categoría hacia abajo
+df["Tipo_Renta"] = df["Tipo_Renta"].ffill()
 
-# Eliminar filas que son las categorías mismas
+# Eliminar filas categoría
 df_final = df[
-    ~df[col_fondo].isin([
-        "Renta Variable Peso Argentina",
-        "Renta Fija Peso Argentina"
-    ])
+    ~df[col_fondo].apply(
+        lambda x: normalizar(x) in [
+            normalizar("Renta Variable Peso Argentina"),
+            normalizar("Renta Fija Peso Argentina"),
+        ]
+    )
 ].copy()
 
-# Eliminar filas donde no haya fondo real
+# Eliminar filas sin fondo real
 df_final = df_final[df_final[col_fondo].notna()]
 
 # ==========================================================
