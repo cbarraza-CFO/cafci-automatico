@@ -42,8 +42,7 @@ df["fecha"] = hoy_str
 
 col_fondo = df.columns[0]
 
-# 🔥 SOLUCIÓN CLAVE
-# Rellenar filas donde el fondo está vacío (continuaciones del Excel)
+# Rellenar filas vacías (si hay filas de continuación)
 df[col_fondo] = df[col_fondo].ffill()
 
 # ==========================================================
@@ -84,39 +83,6 @@ df["rend_mes"] = limpiar_pct(df[col_mes]) if col_mes else 0
 df["rend_anio"] = limpiar_pct(df[col_anio]) if col_anio else 0
 
 # ==========================================================
-# CREAR TIPO_RENTA (MÉTODO ESTABLE)
-# ==========================================================
-
-df["Tipo_Renta"] = None
-
-def normalizar(txt):
-    return " ".join(str(txt).lower().strip().split())
-
-for i in range(len(df)):
-    nombre = normalizar(df[col_fondo].iloc[i])
-
-    if nombre == normalizar("Renta Variable Peso Argentina"):
-        df.at[i, "Tipo_Renta"] = "Renta Variable Peso Argentina"
-
-    elif nombre == normalizar("Renta Fija Peso Argentina"):
-        df.at[i, "Tipo_Renta"] = "Renta Fija Peso Argentina"
-
-# Propagar categoría hacia abajo
-df["Tipo_Renta"] = df["Tipo_Renta"].ffill()
-
-# Eliminar filas categoría
-df_final = df[
-    ~df[col_fondo].apply(
-        lambda x: normalizar(x) in [
-            normalizar("Renta Variable Peso Argentina"),
-            normalizar("Renta Fija Peso Argentina"),
-        ]
-    )
-].copy()
-
-df_final = df_final[df_final[col_fondo].notna()]
-
-# ==========================================================
 # BUSCAR OTRAS COLUMNAS
 # ==========================================================
 
@@ -129,6 +95,16 @@ def buscar_columna(texto):
 col_moneda = buscar_columna("moneda fondo")
 col_plazo = buscar_columna("plazo liq")
 col_valor = buscar_columna("valor (mil cuotapartes) actual")
+
+# ==========================================================
+# LIMPIAR FILAS CATEGORIA (SIN USAR TIPO_RENTA)
+# ==========================================================
+
+df_final = df[
+    ~df[col_fondo].str.lower().str.contains("renta variable|renta fija", na=False)
+].copy()
+
+df_final = df_final[df_final[col_fondo].notna()]
 
 # ==========================================================
 # HISTORICO ACUMULATIVO
@@ -150,7 +126,6 @@ df_total.to_excel(hist_file, index=False)
 # ==========================================================
 
 df_powerbi = pd.DataFrame({
-    "Tipo_Renta": df_final["Tipo_Renta"],
     "Nombre_Fondo": df_final[col_fondo],
     "Moneda": df_final[col_moneda] if col_moneda else "",
     "Fecha": hoy_str,
