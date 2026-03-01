@@ -2,6 +2,7 @@ import requests
 import pandas as pd
 from datetime import datetime
 import os
+import re
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import pagesizes
@@ -26,20 +27,11 @@ with open(archivo, "wb") as f:
     f.write(r.content)
 
 # ==========================================================
-# LECTURA CON HEADER MULTINIVEL (FILAS 8 Y 9)
+# LECTURA MULTINIVEL (FILAS 8 Y 9)
 # ==========================================================
 
-df = pd.read_excel(
-    archivo,
-    header=[7, 8]   # fila 8 y 9 (index base 0)
-)
-
-# Combinar encabezados
-df.columns = [
-    f"{str(a)} {str(b)}".strip().lower()
-    for a, b in df.columns
-]
-
+df = pd.read_excel(archivo, header=[7,8])
+df.columns = [f"{a} {b}".strip().lower() for a,b in df.columns]
 df = df.dropna(how="all")
 df["fecha"] = hoy_str
 
@@ -47,25 +39,35 @@ print("Columnas procesadas:")
 print(df.columns.tolist())
 
 # ==========================================================
-# BUSCAR COLUMNAS
+# IDENTIFICAR COLUMNAS VARIACION %
 # ==========================================================
 
-def buscar_columna(palabras):
-    for col in df.columns:
-        for palabra in palabras:
-            if palabra in col:
-                return col
+cols_variacion = [c for c in df.columns if "variacion cuotaparte %" in c]
+
+if len(cols_variacion) < 1:
+    raise Exception("No se encontraron columnas variacion cuotaparte %")
+
+# Extraer fechas de las columnas
+def extraer_fecha(col):
+    match = re.search(r"\d{2}/\d{2}/\d{2}", col)
+    if match:
+        return datetime.strptime(match.group(), "%d/%m/%y")
     return None
 
-col_fondo = buscar_columna(["fondo", "denomin", "nombre"])
-col_moneda = buscar_columna(["moneda"])
-col_plazo = buscar_columna(["plazo", "liquid"])
-col_dia = buscar_columna(["diario"])
-col_mes = buscar_columna(["mes"])
-col_anio = buscar_columna(["año", "anio"])
+cols_fechas = [(c, extraer_fecha(c)) for c in cols_variacion]
+cols_fechas = [x for x in cols_fechas if x[1] is not None]
 
-if not col_dia:
-    raise Exception("No se encontró columna rendimiento diario")
+# Ordenar por fecha descendente
+cols_fechas.sort(key=lambda x: x[1], reverse=True)
+
+col_dia = cols_fechas[0][0] if len(cols_fechas) > 0 else None
+col_mes = cols_fechas[1][0] if len(cols_fechas) > 1 else None
+col_anio = cols_fechas[2][0] if len(cols_fechas) > 2 else None
+
+print("Columnas detectadas:")
+print("Día:", col_dia)
+print("Mes:", col_mes)
+print("Año:", col_anio)
 
 # ==========================================================
 # LIMPIAR %
@@ -79,12 +81,26 @@ def limpiar_pct(col):
         .astype(float)
     )
 
-df["rend_dia"] = limpiar_pct(df[col_dia])
+df["rend_dia"] = limpiar_pct(df[col_dia]) if col_dia else 0
 df["rend_mes"] = limpiar_pct(df[col_mes]) if col_mes else 0
 df["rend_anio"] = limpiar_pct(df[col_anio]) if col_anio else 0
 
 # ==========================================================
-# HISTÓRICO
+# OTRAS COLUMNAS IMPORTANTES
+# ==========================================================
+
+def buscar_columna(texto):
+    for col in df.columns:
+        if texto in col:
+            return col
+    return None
+
+col_fondo = buscar_columna("fondo")
+col_moneda = buscar_columna("moneda fondo")
+col_plazo = buscar_columna("plazo liq")
+
+# ==========================================================
+# HISTORICO
 # ==========================================================
 
 hist_file = "CAFCI_Historico.xlsx"
@@ -97,25 +113,6 @@ else:
 
 df_total = df_total.drop_duplicates()
 df_total.to_excel(hist_file, index=False)
-
-# ==========================================================
-# RESUMEN
-# ==========================================================
-
-rend_dia = df["rend_dia"].mean()
-
-df_total["fecha"] = pd.to_datetime(df_total["fecha"])
-rend_mes = df_total[df_total["fecha"].dt.month == hoy.month]["rend_dia"].mean()
-rend_anio = df_total[df_total["fecha"].dt.year == hoy.year]["rend_dia"].mean()
-
-df_resumen = pd.DataFrame([{
-    "fecha": hoy_str,
-    "rendimiento_dia_%": round(rend_dia,3),
-    "rendimiento_mes_%": round(rend_mes,3),
-    "rendimiento_anio_%": round(rend_anio,3)
-}])
-
-df_resumen.to_excel("Resumen_Rendimientos.xlsx", index=False)
 
 # ==========================================================
 # CSV POWER BI
@@ -159,9 +156,7 @@ for _, row in top10.iterrows():
         round(row["rend_dia"],3)
     ])
 
-table = Table(data)
-elements.append(table)
-
+elements.append(Table(data))
 pdf.build(elements)
 
 print("Proceso finalizado correctamente.")
