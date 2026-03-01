@@ -1,5 +1,6 @@
 name: CAFI Diario
-
+permissions:
+  contents: write
 on:
   schedule:
     - cron: '0 21 * * *'   # 21 UTC = 18 Argentina
