@@ -1,0 +1,33 @@
+name: CAFI Diario
+
+on:
+  schedule:
+    - cron: '0 21 * * *'   # 21 UTC = 18 Argentina
+  workflow_dispatch:
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install pandas requests openpyxl
+
+      - name: Run CAFI script
+        run: python cafci_script.py
+
+      - name: Commit updated historical file
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add CAFCI_Historico.xlsx
+          git commit -m "Actualización automática histórico CAFI" || echo "No changes to commit"
+          git push
