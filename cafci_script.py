@@ -26,49 +26,39 @@ with open(archivo, "wb") as f:
     f.write(r.content)
 
 # ==========================================================
-# LECTURA
+# DETECTAR FILA DE ENCABEZADOS REAL
 # ==========================================================
 
-df = pd.read_excel(archivo)
-df = df.dropna(how="all")
-df.columns = df.columns.str.strip()
+df_temp = pd.read_excel(archivo, header=None)
 
-# Normalizamos nombres
-df.columns = df.columns.str.lower()
+fila_header = None
+
+for i in range(20):  # busca en las primeras 20 filas
+    fila = df_temp.iloc[i].astype(str).str.lower()
+    if fila.str.contains("fondo").any() or fila.str.contains("denomin").any():
+        fila_header = i
+        break
+
+if fila_header is None:
+    raise Exception("No se pudo detectar la fila de encabezados")
+
+print(f"Encabezado detectado en fila {fila_header}")
+
+# ==========================================================
+# LEER CON HEADER CORRECTO
+# ==========================================================
+
+df = pd.read_excel(archivo, header=fila_header)
+df = df.dropna(how="all")  # elimina filas totalmente vacías
+df.columns = df.columns.str.strip().str.lower()
 
 df["fecha"] = hoy_str
 
-print("Columnas detectadas:")
+print("Columnas reales:")
 print(df.columns.tolist())
 
 # ==========================================================
-# FUNCIÓN BUSCAR COLUMNA SEGURA
-# ==========================================================
-
-def buscar_columna(palabras):
-    for col in df.columns:
-        for palabra in palabras:
-            if palabra in col:
-                return col
-    return None
-
-# ==========================================================
-# DETECTAR COLUMNAS
-# ==========================================================
-
-col_fondo = buscar_columna(["fondo", "denominacion", "nombre"])
-col_moneda = buscar_columna(["moneda"])
-col_plazo = buscar_columna(["plazo", "liquid"])
-
-col_dia = buscar_columna(["diario"])
-col_mes = buscar_columna(["mes"])
-col_anio = buscar_columna(["año", "anio"])
-
-if not col_fondo:
-    raise Exception("No se encontró columna de nombre de fondo")
-
-# ==========================================================
-# LIMPIEZA %
+# FUNCIÓN LIMPIEZA %
 # ==========================================================
 
 def limpiar_pct(col):
@@ -78,6 +68,31 @@ def limpiar_pct(col):
         .str.replace("%", "", regex=False)
         .astype(float)
     )
+
+# ==========================================================
+# DETECTAR COLUMNAS
+# ==========================================================
+
+def buscar_columna(palabras):
+    for col in df.columns:
+        for palabra in palabras:
+            if palabra in col:
+                return col
+    return None
+
+col_fondo = buscar_columna(["fondo", "denomin"])
+col_moneda = buscar_columna(["moneda"])
+col_plazo = buscar_columna(["plazo", "liquid"])
+col_dia = buscar_columna(["diario"])
+col_mes = buscar_columna(["mes"])
+col_anio = buscar_columna(["año", "anio"])
+
+if not col_fondo:
+    raise Exception("No se encontró columna nombre fondo")
+
+# ==========================================================
+# LIMPIAR RENDIMIENTOS
+# ==========================================================
 
 df["rend_dia"] = limpiar_pct(df[col_dia])
 df["rend_mes"] = limpiar_pct(df[col_mes])
