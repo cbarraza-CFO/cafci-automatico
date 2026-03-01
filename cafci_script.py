@@ -64,6 +64,7 @@ def limpiar_pct(col):
         col.astype(str)
         .str.replace(",", ".", regex=False)
         .str.replace("%", "", regex=False)
+        .replace("nan", None)
         .astype(float)
     )
 
@@ -72,7 +73,7 @@ df["rend_mes"] = limpiar_pct(df[col_mes]) if col_mes else 0
 df["rend_anio"] = limpiar_pct(df[col_anio]) if col_anio else 0
 
 # ==========================================================
-# OTRAS COLUMNAS
+# BUSCAR COLUMNAS IMPORTANTES
 # ==========================================================
 
 def buscar_columna(texto):
@@ -87,30 +88,36 @@ col_plazo = buscar_columna("plazo liq")
 col_valor = buscar_columna("valor (mil cuotapartes) actual")
 
 # ==========================================================
-# CREAR TIPO_RENTA (SOLO DOS CATEGORÍAS)
+# CREAR TIPO_RENTA (DETECTANDO FILA CATEGORIA REAL)
 # ==========================================================
 
 df["Tipo_Renta"] = None
+categoria_actual = None
 
 for i in range(len(df)):
-    nombre = str(df[col_fondo].iloc[i])
+    nombre = str(df[col_fondo].iloc[i]).strip()
+    fila = df.iloc[i]
     
-    if "renta variable peso argentina" in nombre.lower():
-        df.at[i, "Tipo_Renta"] = "Renta Variable Peso Argentina"
+    otras_columnas = fila.drop(labels=[col_fondo])
+    otras_vacias = otras_columnas.isna().all()
+    
+    if nombre == "Renta Variable Peso Argentina" and otras_vacias:
+        categoria_actual = "Renta Variable Peso Argentina"
+        continue
         
-    elif "renta fija peso argentina" in nombre.lower():
-        df.at[i, "Tipo_Renta"] = "Renta Fija Peso Argentina"
+    if nombre == "Renta Fija Peso Argentina" and otras_vacias:
+        categoria_actual = "Renta Fija Peso Argentina"
+        continue
+    
+    df.at[i, "Tipo_Renta"] = categoria_actual
 
-# replicar categoría hacia abajo
-df["Tipo_Renta"] = df["Tipo_Renta"].ffill()
-
-# eliminar filas que son categoría
+# eliminar filas categoría
 df_final = df[
-    ~df[col_fondo].str.lower().isin([
-        "renta variable peso argentina",
-        "renta fija peso argentina"
+    ~df[col_fondo].isin([
+        "Renta Variable Peso Argentina",
+        "Renta Fija Peso Argentina"
     ])
-]
+].copy()
 
 # ==========================================================
 # HISTORICO ACUMULATIVO
@@ -120,9 +127,9 @@ hist_file = "CAFCI_Historico.xlsx"
 
 if os.path.exists(hist_file):
     df_hist = pd.read_excel(hist_file)
-    df_total = pd.concat([df_hist, df])
+    df_total = pd.concat([df_hist, df_final])
 else:
-    df_total = df
+    df_total = df_final
 
 df_total = df_total.drop_duplicates()
 df_total.to_excel(hist_file, index=False)
@@ -143,6 +150,7 @@ df_powerbi = pd.DataFrame({
     "Rendimiento_Del_Anio_%": df_final["rend_anio"],
 })
 
+df_powerbi = df_powerbi.dropna(subset=["Nombre_Fondo"])
 df_powerbi.to_csv("FCI_Limpio.csv", index=False)
 
 # ==========================================================
@@ -150,11 +158,11 @@ df_powerbi.to_csv("FCI_Limpio.csv", index=False)
 # ==========================================================
 
 if col_plazo:
-    df_mm = df_final[df_final[col_plazo].astype(str).str.contains("0", na=False)]
+    df_mm = df_powerbi[df_powerbi["Plazo_Liquidacion"].astype(str).str.contains("0", na=False)]
 else:
-    df_mm = df_final.copy()
+    df_mm = df_powerbi.copy()
 
-top10 = df_mm.sort_values("rend_dia", ascending=False).head(10)
+top10 = df_mm.sort_values("Rendimiento_Del_Dia_%", ascending=False).head(10)
 
 pdf = SimpleDocTemplate("Reporte_MoneyMarket_T0.pdf", pagesize=pagesizes.A4)
 elements = []
@@ -167,8 +175,8 @@ data = [["Fondo", "Rend Día %"]]
 
 for _, row in top10.iterrows():
     data.append([
-        str(row[col_fondo]),
-        round(row["rend_dia"], 3)
+        str(row["Nombre_Fondo"]),
+        round(row["Rendimiento_Del_Dia_%"], 3)
     ])
 
 elements.append(Table(data))
