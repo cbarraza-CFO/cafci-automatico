@@ -37,6 +37,12 @@ df = df.dropna(how="all")
 df["fecha"] = hoy_str
 
 # ==========================================================
+# USAR PRIMERA COLUMNA COMO FONDO (CLAVE)
+# ==========================================================
+
+col_fondo = df.columns[0]
+
+# ==========================================================
 # IDENTIFICAR COLUMNAS VARIACION %
 # ==========================================================
 
@@ -74,25 +80,11 @@ df["rend_mes"] = limpiar_pct(df[col_mes]) if col_mes else 0
 df["rend_anio"] = limpiar_pct(df[col_anio]) if col_anio else 0
 
 # ==========================================================
-# BUSCAR COLUMNAS IMPORTANTES
-# ==========================================================
-
-def buscar_columna(texto):
-    for col in df.columns:
-        if texto in col:
-            return col
-    return None
-
-col_fondo = buscar_columna("fondo")
-col_moneda = buscar_columna("moneda fondo")
-col_plazo = buscar_columna("plazo liq")
-col_valor = buscar_columna("valor (mil cuotapartes) actual")
-
-# ==========================================================
-# CREAR TIPO_RENTA (MÉTODO ESTABLE)
+# CREAR TIPO_RENTA POR BLOQUE (USANDO PRIMERA COLUMNA)
 # ==========================================================
 
 df["Tipo_Renta"] = None
+categoria_actual = None
 
 def normalizar(txt):
     return " ".join(str(txt).lower().strip().split())
@@ -101,13 +93,14 @@ for i in range(len(df)):
     nombre = normalizar(df[col_fondo].iloc[i])
 
     if nombre == normalizar("Renta Variable Peso Argentina"):
-        df.at[i, "Tipo_Renta"] = "Renta Variable Peso Argentina"
+        categoria_actual = "Renta Variable Peso Argentina"
+        continue
 
-    elif nombre == normalizar("Renta Fija Peso Argentina"):
-        df.at[i, "Tipo_Renta"] = "Renta Fija Peso Argentina"
+    if nombre == normalizar("Renta Fija Peso Argentina"):
+        categoria_actual = "Renta Fija Peso Argentina"
+        continue
 
-# Propagar categoría hacia abajo
-df["Tipo_Renta"] = df["Tipo_Renta"].ffill()
+    df.at[i, "Tipo_Renta"] = categoria_actual
 
 # Eliminar filas categoría
 df_final = df[
@@ -119,11 +112,24 @@ df_final = df[
     )
 ].copy()
 
-# Eliminar filas sin fondo real
 df_final = df_final[df_final[col_fondo].notna()]
 
 # ==========================================================
-# HISTORICO ACUMULATIVO
+# BUSCAR OTRAS COLUMNAS
+# ==========================================================
+
+def buscar_columna(texto):
+    for col in df.columns:
+        if texto in col:
+            return col
+    return None
+
+col_moneda = buscar_columna("moneda fondo")
+col_plazo = buscar_columna("plazo liq")
+col_valor = buscar_columna("valor (mil cuotapartes) actual")
+
+# ==========================================================
+# HISTORICO
 # ==========================================================
 
 hist_file = "CAFCI_Historico.xlsx"
@@ -138,7 +144,7 @@ df_total = df_total.drop_duplicates()
 df_total.to_excel(hist_file, index=False)
 
 # ==========================================================
-# CSV POWER BI FINAL
+# CSV POWER BI
 # ==========================================================
 
 df_powerbi = pd.DataFrame({
@@ -154,34 +160,5 @@ df_powerbi = pd.DataFrame({
 })
 
 df_powerbi.to_csv("FCI_Limpio.csv", index=False)
-
-# ==========================================================
-# PDF MONEY MARKET T+0
-# ==========================================================
-
-if col_plazo:
-    df_mm = df_powerbi[df_powerbi["Plazo_Liquidacion"].astype(str).str.contains("0", na=False)]
-else:
-    df_mm = df_powerbi.copy()
-
-top10 = df_mm.sort_values("Rendimiento_Del_Dia_%", ascending=False).head(10)
-
-pdf = SimpleDocTemplate("Reporte_MoneyMarket_T0.pdf", pagesize=pagesizes.A4)
-elements = []
-styles = getSampleStyleSheet()
-
-elements.append(Paragraph(f"Reporte Money Market T+0 - {hoy_str}", styles["Title"]))
-elements.append(Spacer(1, 12))
-
-data = [["Fondo", "Rend Día %"]]
-
-for _, row in top10.iterrows():
-    data.append([
-        str(row["Nombre_Fondo"]),
-        round(row["Rendimiento_Del_Dia_%"], 3)
-    ])
-
-elements.append(Table(data))
-pdf.build(elements)
 
 print("Proceso finalizado correctamente.")
