@@ -27,16 +27,13 @@ with open(archivo, "wb") as f:
     f.write(r.content)
 
 # ==========================================================
-# LECTURA MULTINIVEL (FILAS 8 Y 9)
+# LECTURA HEADER MULTINIVEL (FILAS 8 Y 9)
 # ==========================================================
 
-df = pd.read_excel(archivo, header=[7,8])
-df.columns = [f"{a} {b}".strip().lower() for a,b in df.columns]
+df = pd.read_excel(archivo, header=[7, 8])
+df.columns = [f"{a} {b}".strip().lower() for a, b in df.columns]
 df = df.dropna(how="all")
 df["fecha"] = hoy_str
-
-print("Columnas procesadas:")
-print(df.columns.tolist())
 
 # ==========================================================
 # IDENTIFICAR COLUMNAS VARIACION %
@@ -44,10 +41,6 @@ print(df.columns.tolist())
 
 cols_variacion = [c for c in df.columns if "variacion cuotaparte %" in c]
 
-if len(cols_variacion) < 1:
-    raise Exception("No se encontraron columnas variacion cuotaparte %")
-
-# Extraer fechas de las columnas
 def extraer_fecha(col):
     match = re.search(r"\d{2}/\d{2}/\d{2}", col)
     if match:
@@ -56,18 +49,11 @@ def extraer_fecha(col):
 
 cols_fechas = [(c, extraer_fecha(c)) for c in cols_variacion]
 cols_fechas = [x for x in cols_fechas if x[1] is not None]
-
-# Ordenar por fecha descendente
 cols_fechas.sort(key=lambda x: x[1], reverse=True)
 
 col_dia = cols_fechas[0][0] if len(cols_fechas) > 0 else None
 col_mes = cols_fechas[1][0] if len(cols_fechas) > 1 else None
 col_anio = cols_fechas[2][0] if len(cols_fechas) > 2 else None
-
-print("Columnas detectadas:")
-print("Día:", col_dia)
-print("Mes:", col_mes)
-print("Año:", col_anio)
 
 # ==========================================================
 # LIMPIAR %
@@ -86,7 +72,7 @@ df["rend_mes"] = limpiar_pct(df[col_mes]) if col_mes else 0
 df["rend_anio"] = limpiar_pct(df[col_anio]) if col_anio else 0
 
 # ==========================================================
-# OTRAS COLUMNAS IMPORTANTES
+# OTRAS COLUMNAS
 # ==========================================================
 
 def buscar_columna(texto):
@@ -98,9 +84,36 @@ def buscar_columna(texto):
 col_fondo = buscar_columna("fondo")
 col_moneda = buscar_columna("moneda fondo")
 col_plazo = buscar_columna("plazo liq")
+col_valor = buscar_columna("valor (mil cuotapartes) actual")
 
 # ==========================================================
-# HISTORICO
+# CREAR TIPO_RENTA (SOLO DOS CATEGORÍAS)
+# ==========================================================
+
+df["Tipo_Renta"] = None
+
+for i in range(len(df)):
+    nombre = str(df[col_fondo].iloc[i])
+    
+    if "renta variable peso argentina" in nombre.lower():
+        df.at[i, "Tipo_Renta"] = "Renta Variable Peso Argentina"
+        
+    elif "renta fija peso argentina" in nombre.lower():
+        df.at[i, "Tipo_Renta"] = "Renta Fija Peso Argentina"
+
+# replicar categoría hacia abajo
+df["Tipo_Renta"] = df["Tipo_Renta"].ffill()
+
+# eliminar filas que son categoría
+df_final = df[
+    ~df[col_fondo].str.lower().isin([
+        "renta variable peso argentina",
+        "renta fija peso argentina"
+    ])
+]
+
+# ==========================================================
+# HISTORICO ACUMULATIVO
 # ==========================================================
 
 hist_file = "CAFCI_Historico.xlsx"
@@ -115,17 +128,19 @@ df_total = df_total.drop_duplicates()
 df_total.to_excel(hist_file, index=False)
 
 # ==========================================================
-# CSV POWER BI
+# CSV POWER BI FINAL
 # ==========================================================
 
 df_powerbi = pd.DataFrame({
-    "Nombre_Fondo": df[col_fondo] if col_fondo else "",
-    "Moneda": df[col_moneda] if col_moneda else "",
+    "Tipo_Renta": df_final["Tipo_Renta"],
+    "Nombre_Fondo": df_final[col_fondo],
+    "Moneda": df_final[col_moneda] if col_moneda else "",
     "Fecha": hoy_str,
-    "Plazo_Liquidacion": df[col_plazo] if col_plazo else "",
-    "Rendimiento_Del_Dia_%": df["rend_dia"],
-    "Rendimiento_Del_Mes_%": df["rend_mes"],
-    "Rendimiento_Del_Anio_%": df["rend_anio"],
+    "Plazo_Liquidacion": df_final[col_plazo] if col_plazo else "",
+    "Valor_Cuotaparte_Actual": df_final[col_valor] if col_valor else "",
+    "Rendimiento_Del_Dia_%": df_final["rend_dia"],
+    "Rendimiento_Del_Mes_%": df_final["rend_mes"],
+    "Rendimiento_Del_Anio_%": df_final["rend_anio"],
 })
 
 df_powerbi.to_csv("FCI_Limpio.csv", index=False)
@@ -135,9 +150,9 @@ df_powerbi.to_csv("FCI_Limpio.csv", index=False)
 # ==========================================================
 
 if col_plazo:
-    df_mm = df[df[col_plazo].astype(str).str.contains("0", na=False)]
+    df_mm = df_final[df_final[col_plazo].astype(str).str.contains("0", na=False)]
 else:
-    df_mm = df.copy()
+    df_mm = df_final.copy()
 
 top10 = df_mm.sort_values("rend_dia", ascending=False).head(10)
 
@@ -152,8 +167,8 @@ data = [["Fondo", "Rend Día %"]]
 
 for _, row in top10.iterrows():
     data.append([
-        str(row[col_fondo]) if col_fondo else "",
-        round(row["rend_dia"],3)
+        str(row[col_fondo]),
+        round(row["rend_dia"], 3)
     ])
 
 elements.append(Table(data))
