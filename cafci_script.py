@@ -33,6 +33,7 @@ with open(archivo, "wb") as f:
 df = pd.read_excel(archivo, header=[7, 8])
 df.columns = [f"{a} {b}".strip().lower() for a, b in df.columns]
 df = df.dropna(how="all")
+
 df["fecha"] = hoy_str
 
 # ==========================================================
@@ -88,7 +89,7 @@ col_plazo = buscar_columna("plazo liq")
 col_valor = buscar_columna("valor (mil cuotapartes) actual")
 
 # ==========================================================
-# CREAR TIPO_RENTA (DETECTANDO FILA CATEGORIA REAL)
+# ASIGNAR TIPO_RENTA POR BLOQUES SECUENCIALES
 # ==========================================================
 
 df["Tipo_Renta"] = None
@@ -96,28 +97,29 @@ categoria_actual = None
 
 for i in range(len(df)):
     nombre = str(df[col_fondo].iloc[i]).strip()
-    fila = df.iloc[i]
-    
-    otras_columnas = fila.drop(labels=[col_fondo])
-    otras_vacias = otras_columnas.isna().all()
-    
-    if nombre == "Renta Variable Peso Argentina" and otras_vacias:
+
+    # Si encontramos categoría nueva
+    if nombre == "Renta Variable Peso Argentina":
         categoria_actual = "Renta Variable Peso Argentina"
         continue
-        
-    if nombre == "Renta Fija Peso Argentina" and otras_vacias:
+
+    if nombre == "Renta Fija Peso Argentina":
         categoria_actual = "Renta Fija Peso Argentina"
         continue
-    
+
+    # Asignar categoría vigente
     df.at[i, "Tipo_Renta"] = categoria_actual
 
-# eliminar filas categoría
+# Eliminar filas que son las categorías mismas
 df_final = df[
     ~df[col_fondo].isin([
         "Renta Variable Peso Argentina",
         "Renta Fija Peso Argentina"
     ])
 ].copy()
+
+# Eliminar filas donde no haya fondo real
+df_final = df_final[df_final[col_fondo].notna()]
 
 # ==========================================================
 # HISTORICO ACUMULATIVO
@@ -150,7 +152,6 @@ df_powerbi = pd.DataFrame({
     "Rendimiento_Del_Anio_%": df_final["rend_anio"],
 })
 
-df_powerbi = df_powerbi.dropna(subset=["Nombre_Fondo"])
 df_powerbi.to_csv("FCI_Limpio.csv", index=False)
 
 # ==========================================================
